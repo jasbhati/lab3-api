@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { api, createTask } from './setup.js';
+import { api, createTask, createTasks } from './setup.js';
 
 describe('Task API', () => {
   describe('GET /tasks', () => {
@@ -7,13 +7,96 @@ describe('Task API', () => {
       const task = await createTask();
       const response = await api().get('/tasks').expect(200);
 
-      expect(response.body).toEqual([task]);
+      expect(response.body).toEqual({ data: [task], nextCursor: null, hasMore: false });
     });
 
-    it('returns an empty array when no tasks exist', async () => {
+    it('returns an empty page when no tasks exist', async () => {
       const response = await api().get('/tasks').expect(200);
 
-      expect(response.body).toEqual([]);
+      expect(response.body).toEqual({ data: [], nextCursor: null, hasMore: false });
+    });
+
+    it('defaults to a limit of 20 and sorts newest first', async () => {
+      const tasks = await createTasks(25);
+
+      const response = await api().get('/tasks').expect(200);
+
+      expect(response.body.data).toHaveLength(20);
+      expect(response.body.hasMore).toBe(true);
+      expect(response.body.nextCursor).toEqual(expect.any(String));
+      expect(response.body.data.map((task: { id: string }) => task.id)).toEqual(
+        tasks
+          .slice()
+          .reverse()
+          .slice(0, 20)
+          .map((task) => task.id),
+      );
+    });
+
+    it('respects a custom limit', async () => {
+      await createTasks(5);
+
+      const response = await api().get('/tasks?limit=2').expect(200);
+
+      expect(response.body.data).toHaveLength(2);
+      expect(response.body.hasMore).toBe(true);
+      expect(response.body.nextCursor).toEqual(expect.any(String));
+    });
+
+    it('returns hasMore false and nextCursor null on the last page', async () => {
+      await createTasks(3);
+
+      const response = await api().get('/tasks?limit=10').expect(200);
+
+      expect(response.body.data).toHaveLength(3);
+      expect(response.body.hasMore).toBe(false);
+      expect(response.body.nextCursor).toBeNull();
+    });
+
+    it('paginates through all tasks using the returned cursor', async () => {
+      const tasks = await createTasks(5);
+      const expectedOrder = tasks.slice().reverse().map((task) => task.id);
+      const collectedIds: string[] = [];
+
+      let cursor: string | undefined;
+      let hasMore = true;
+
+      while (hasMore) {
+        const query = cursor ? `?limit=2&cursor=${encodeURIComponent(cursor)}` : '?limit=2';
+        // eslint-disable-next-line no-await-in-loop
+        const response = await api().get(`/tasks${query}`).expect(200);
+
+        collectedIds.push(...response.body.data.map((task: { id: string }) => task.id));
+        hasMore = response.body.hasMore;
+        cursor = response.body.nextCursor ?? undefined;
+      }
+
+      expect(collectedIds).toEqual(expectedOrder);
+    });
+
+    it.each([['abc'], ['0'], ['-1'], ['1.5'], ['101']])(
+      'rejects an invalid limit of %s',
+      async (limit) => {
+        const response = await api().get(`/tasks?limit=${limit}`).expect(400);
+
+        expect(response.body.error.code).toBe('VALIDATION_ERROR');
+      },
+    );
+
+    it('rejects a malformed cursor', async () => {
+      const response = await api().get('/tasks?cursor=not-valid-base64!!').expect(400);
+
+      expect(response.body.error.code).toBe('INVALID_CURSOR');
+    });
+
+    it('rejects a cursor for a task that no longer exists', async () => {
+      const task = await createTask();
+      const cursor = Buffer.from(task.id, 'utf8').toString('base64');
+      await api().delete(`/tasks/${task.id}`).expect(204);
+
+      const response = await api().get(`/tasks?cursor=${encodeURIComponent(cursor)}`).expect(400);
+
+      expect(response.body.error.code).toBe('INVALID_CURSOR');
     });
   });
 

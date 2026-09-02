@@ -22,3 +22,9 @@ export interface UpdateTaskInput {
   description: string;
   status: TaskStatus;
 }
+
+export interface TaskPage {
+  data: Task[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}

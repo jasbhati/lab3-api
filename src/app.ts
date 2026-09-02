@@ -1,11 +1,13 @@
 import express from 'express';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
+import { rateLimitMiddleware } from './middleware/rateLimiter.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { tasksRouter } from './routes/tasks.js';
 
 export const app = express();
 
 app.use(requestLogger);
+app.use(rateLimitMiddleware);
 app.use(express.json());
 
 app.get('/health', (_request, response) => {

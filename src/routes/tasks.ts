@@ -2,15 +2,40 @@ import { Router } from 'express';
 import { AppError } from '../middleware/errorHandler.js';
 import {
   createTaskSchema,
+  listTasksQuerySchema,
   updateTaskSchema,
   validateBody,
 } from '../middleware/validation.js';
 import { taskStore } from '../store/taskStore.js';
+import { decodeCursor, encodeCursor } from '../utils/pagination.js';
 
 export const tasksRouter = Router();
 
-tasksRouter.get('/', (_request, response) => {
-  response.json(taskStore.findAll());
+tasksRouter.get('/', (request, response, next) => {
+  const parsedQuery = listTasksQuerySchema.safeParse(request.query);
+
+  if (!parsedQuery.success) {
+    next(parsedQuery.error);
+    return;
+  }
+
+  const { limit, cursor } = parsedQuery.data;
+  let afterId: string | undefined;
+
+  if (cursor) {
+    afterId = decodeCursor(cursor);
+
+    if (!taskStore.findById(afterId)) {
+      next(new AppError(400, 'INVALID_CURSOR', 'Cursor is invalid or expired'));
+      return;
+    }
+  }
+
+  const { items, hasMore } = taskStore.findPage({ limit, afterId });
+  const lastItem = items[items.length - 1];
+  const nextCursor = hasMore && lastItem ? encodeCursor(lastItem.id) : null;
+
+  response.json({ data: items, nextCursor, hasMore });
 });
 
 tasksRouter.get<{ id: string }>('/:id', (request, response, next) => {
