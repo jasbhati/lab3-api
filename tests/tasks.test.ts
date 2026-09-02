@@ -34,11 +34,11 @@ describe('Task API', () => {
     });
 
     it('respects a custom limit', async () => {
-      await createTasks(5);
+      await createTasks(7);
 
-      const response = await api().get('/tasks?limit=2').expect(200);
+      const response = await api().get('/tasks?limit=5').expect(200);
 
-      expect(response.body.data).toHaveLength(2);
+      expect(response.body.data).toHaveLength(5);
       expect(response.body.hasMore).toBe(true);
       expect(response.body.nextCursor).toEqual(expect.any(String));
     });
